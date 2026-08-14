@@ -1295,7 +1295,7 @@
       }
     }
 
-    /* 🟢 [수정보완] 자동 정지 감지 타이머 초기화 로직 단순화 및 보완 */
+    /* 🟢 자동 정지 감지 타이머 초기화 로직 단순화 및 보완 */
     function checkAutoStop(speedKts) {
       if (!isDrivingStarted || hasSaved) {
         if (autoStopTimer) {
@@ -1331,7 +1331,7 @@
     }
 
     /* ============================================================= */
-    /* [JS-6] 선박 운항 등록 및 서버 연동 제어 */
+    /* [JS-6] 선박 운항 등록 및 서버 연동 제어 (수정 완료) */
     /* ============================================================= */
     async function startShipOperation() {
       const selectedOptionText = shipSelect.options[shipSelect.selectedIndex].text;
@@ -1385,7 +1385,11 @@
 
     async function stopShipOperation() {
       if (!isMyShipOperating) return;
-      if (autoStopTimer) {
+
+      // 🟢 [수정 사항] 출항 시작 상태가 유지된 채 해제 시 진행 중인 트립을 자동 저장하고 초기화
+      if (isDrivingStarted) {
+        stopAndSaveTracking(false);
+      } else if (autoStopTimer) {
         clearTimeout(autoStopTimer);
         autoStopTimer = null;
       }
@@ -1402,6 +1406,8 @@
       shipSelect.disabled = false;
       btnShipStart.disabled = false;
       document.getElementById('btn-ship-stop').disabled = true;
+      
+      // 상태 초기화에 따른 버튼 활성화 제어
       btnStart.disabled = true;
       btnStopSave.disabled = true;
 
@@ -1544,7 +1550,7 @@
       return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
     }
 
-    /* 🟢 [수정보완] 다중 배열 구조의 다각형 포인트 안전 파싱 */
+    /* 🟢 다중 배열 구조의 다각형 포인트 안전 파싱 */
     function isPointInPolygon(point, vs) {
       if (!vs || !Array.isArray(vs) || vs.length < 3) return false;
       const x = point[0], y = point[1];
@@ -1823,7 +1829,7 @@
       });
     }
 
-    /* 🟢 [수정보완] 다각형 지오펜싱 구역 안전 추출 로직 보완 */
+    /* 🟢 다각형 지오펜싱 구역 안전 추출 로직 보완 */
     function checkZoneGeofencing(lat, lng) {
       let activeWarning = null;
       drawnItems.eachLayer(layer => {
