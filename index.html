@@ -840,11 +840,15 @@
         <label for="shipSelect">선박 선택 : </label>
         <select id="shipSelect" onchange="handleShipSelectChange()">
           <option value="">-- 선박을 선택하세요 --</option>
-          <option value="ship1">김시민1호</option>
-          <option value="ship2">김시민2호</option>
-          <option value="ship3">남강호</option>
-          <option value="ship4">논개호</option>
-          <option value="ship5">진주호</option>
+          <option value="ship1">김시민 1호</option>
+          <option value="ship2">김시민 2호</option>
+          <option value="ship3">남강 3호</option>
+          <option value="ship4">남강 4호</option>
+          <option value="ship5">남강 5호</option>
+          <option value="ship6">인명구조선</option>
+          <option value="ship7">안전관리선</option>
+          <option value="ship8">기타작업선</option>
+
         </select>
         <button class="btn-op-start" id="btn-ship-start" onclick="startShipOperation()" disabled>운항 등록</button>
         <button class="btn-op-stop" id="btn-ship-stop" onclick="stopShipOperation()" disabled>운항 해제</button>
