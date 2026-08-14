@@ -6,7 +6,7 @@
   <!-- ============================================================= -->
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>GPS 선박 운항 관제 시스템</title>
+  <title>GPS 선박 운항 관제 system</title>
 
   <!-- ============================================================= -->
   <!-- [HTML-2] PWA (Progressive Web App) 앱 관련 메타 태그 -->
@@ -20,22 +20,7 @@
   <!-- ============================================================= -->
   <!-- [HTML-3] 인라인 웹 앱 매니페스트 (PWA 설치용) -->
   <!-- ============================================================= -->
-  <link rel="manifest" href='data:application/manifest+json,{
-    "name": "GPS 선박 관제 시스템",
-    "short_name": "GPS관제",
-    "start_url": "./",
-    "display": "standalone",
-    "background_color": "#0d1117",
-    "theme_color": "#0d1117",
-    "orientation": "any",
-    "icons": [
-      {
-        "src": "data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚓</text></svg>",
-        "sizes": "192x192 512x512",
-        "type": "image/svg+xml"
-      }
-    ]
-  }'>
+  <link rel="manifest" href="data:application/manifest+json,%7B%22name%22%3A%22GPS%20%EC%84%A0%EB%B0%95%20%EA%B4%80%EC%A0%9C%20%EC%8B%9C%EC%8A%A4%ED%85%9C%22%2C%22short_name%22%3A%22GPS%EA%B4%80%EC%A0%9C%22%2C%22start_url%22%3A%22.%2F%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%230d1117%22%2C%22theme_color%22%3A%22%230d1117%22%2C%22orientation%22%3A%22any%22%7D">
 
   <!-- ============================================================= -->
   <!-- [HTML-4] Leaflet 지도 라이브러리 및 지도 회전 플러그인 -->
@@ -848,7 +833,6 @@
           <option value="ship6">인명구조선</option>
           <option value="ship7">안전관리선</option>
           <option value="ship8">기타작업선</option>
-
         </select>
         <button class="btn-op-start" id="btn-ship-start" onclick="startShipOperation()" disabled>운항 등록</button>
         <button class="btn-op-stop" id="btn-ship-stop" onclick="stopShipOperation()" disabled>운항 해제</button>
@@ -881,7 +865,7 @@
 
       <!-- 탭 1: 운항 제어 및 계측 화면 -->
       <div id="tab-control" class="tab-content active">
-        <!-- 1. 아날로그 계기판(Speedometer Canvas - 확대 보완됨) -->
+        <!-- 1. 아날로그 계기판(Speedometer Canvas) -->
         <div class="speedometer-box">
           <canvas id="speedometer" width="400" height="400"></canvas>
         </div>
@@ -1102,7 +1086,13 @@
     let isDrivingStarted = false;
     let hasSaved = false;
     let modalMap = null;
+    let modalPolyline = null;
     let autoStopTimer = null;
+
+    let isNavigating = false;
+    let tripStartTime = null;
+    let tripSpeedList = [];
+    let tripMaxSpeed = 0;
 
     const STOP_THRESHOLD_SPEED = 0.5; // 자동 정지 감지 속도 임계값 (Kts)
     const STOP_HOLD_TIME_MS = 60000;   // 자동 정지 대기 시간 (60초)
@@ -1114,6 +1104,18 @@
     /* ============================================================= */
     /* [JS-3] 사운드 알람(오디오 비프음) 생성 함수 */
     /* ============================================================= */
+    function initAudioContext() {
+      if (!audioCtx) {
+        const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
+        if (AudioCtxClass) {
+          audioCtx = new AudioCtxClass();
+        }
+      }
+      if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+    }
+
     function playAlertSound(type = 'danger') {
       const alarmToggle = document.getElementById('alarmToggle');
       if (alarmToggle && !alarmToggle.checked) return;
@@ -1123,12 +1125,8 @@
       lastAlertTime = now;
 
       try {
-        if (!audioCtx) {
-          audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        }
-        if (audioCtx.state === 'suspended') {
-          audioCtx.resume();
-        }
+        initAudioContext();
+        if (!audioCtx) return;
 
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
@@ -1142,7 +1140,7 @@
           osc.frequency.setValueAtTime(880, audioCtx.currentTime + 0.3);
 
           gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
-          gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+          gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.5);
 
           osc.start(audioCtx.currentTime);
           osc.stop(audioCtx.currentTime + 0.5);
@@ -1150,7 +1148,7 @@
           osc.type = 'sine';
           osc.frequency.setValueAtTime(587.33, audioCtx.currentTime);
           gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
-          gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
+          gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.4);
 
           osc.start(audioCtx.currentTime);
           osc.stop(audioCtx.currentTime + 0.4);
@@ -1164,20 +1162,21 @@
     /* [JS-4] Firebase 실시간 데이터베이스 연동 설정 */
     /* ============================================================= */
     const firebaseConfig = {
-      apiKey: "YOUR_API_KEY",
-      authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-      databaseURL: "https://YOUR_PROJECT_ID-default-rtdb.firebaseio.com",
-      projectId: "YOUR_PROJECT_ID",
-      storageBucket: "YOUR_PROJECT_ID.appspot.com",
-      messagingSenderId: "SENDER_ID",
-      appId: "APP_ID"
+  apiKey: "AIzaSyDzW_k1PnrnaELM5Zp2Ipi3HUBo1ICPiVM",
+  authDomain: "namkangboat-8d51c.firebaseapp.com",
+  databaseURL: "https://namkangboat-8d51c-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "namkangboat-8d51c",
+  storageBucket: "namkangboat-8d51c.firebasestorage.app",
+  messagingSenderId: "574114481972",
+  appId: "1:574114481972:web:70eec04622ad51f0cc4761",
+  measurementId: "G-KJYH191T94"
     };
 
     let isFirebaseReady = false;
     let shipsRefListener = null;
 
     try {
-      if (firebaseConfig.apiKey && firebaseConfig.apiKey !== "YOUR_API_KEY") {
+      if (typeof firebase !== 'undefined' && firebaseConfig.apiKey && firebaseConfig.apiKey !== "YOUR_API_KEY") {
         firebase.initializeApp(firebaseConfig);
         isFirebaseReady = true;
         document.getElementById('connection-status').innerText = "서버 연결됨";
@@ -1200,7 +1199,7 @@
     const PROXIMITY_WARN_DISTANCE_M = 100;
 
     /* ============================================================= */
-    /* [JS-5] 시간 및 포맷터 유틸리티 함수 */
+    /* [JS-5] 시간 및 포맷터 유틸리티 함수 및 상태 업데이트 */
     /* ============================================================= */
     function formatHHMMSS(date) {
       if (!(date instanceof Date) || isNaN(date)) return "00:00:00";
@@ -1208,6 +1207,12 @@
       const m = String(date.getMinutes()).padStart(2, '0');
       const s = String(date.getSeconds()).padStart(2, '0');
       return `${h}:${m}:${s}`;
+    }
+
+    function setMapBearingSafe(deg) {
+      if (typeof map !== 'undefined' && map && typeof map.setBearing === 'function') {
+        try { map.setBearing(deg); } catch(e){}
+      }
     }
 
     function handleShipSelectChange() {
@@ -1246,9 +1251,20 @@
         return;
       }
 
+      // 기존 궤적 및 속도 측정 데이터 초기화
+      resetTrack();
+      tripSpeedList = [];
+      tripMaxSpeed = 0;
+
       isDrivingStarted = true;
       hasSaved = false;
       isNavigating = true;
+
+      // 트립 시작 시 현재 좌표를 첫 포인트로 등록
+      if (currentLat && currentLng) {
+        trackPoints.push([currentLat, currentLng]);
+        if (trackPolyline) trackPolyline.addLatLng([currentLat, currentLng]);
+      }
 
       tripStartTime = new Date();
       const startTimeStr = formatHHMMSS(tripStartTime);
@@ -1281,19 +1297,21 @@
 
       stopAndSaveTrip(); 
 
-      if (isAuto) {
-        alert(`장시간 정지 상태가 감지되어 운항 트립이 자동 종료되었습니다.`);
-      } else {
-        alert(`[${currentShipName}] 운항 트립이 종료되고 저장되었습니다.`);
-      }
       hasSaved = true;
       isDrivingStarted = false;
 
       btnStopSave.disabled = true;
       btnStart.disabled = !isMyShipOperating;
       locationBadge.style.display = 'none';
+
+      if (isAuto) {
+        alert(`장시간 정지 상태가 감지되어 운항 트립이 자동 종료되었습니다.`);
+      } else {
+        alert(`[${currentShipName}] 운항 트립이 종료되고 저장되었습니다.`);
+      }
     }
 
+    /* 🟢 [수정보완] 자동 정지 감지 타이머 초기화 로직 단순화 및 보완 */
     function checkAutoStop(speedKts) {
       if (!isDrivingStarted || hasSaved) {
         if (autoStopTimer) {
@@ -1303,6 +1321,7 @@
         return;
       }
 
+      // 속도가 기준값 미만일 때 타이머 작동
       if (speedKts < STOP_THRESHOLD_SPEED) {
         if (!autoStopTimer) {
           autoStopTimer = setTimeout(() => {
@@ -1310,6 +1329,7 @@
           }, STOP_HOLD_TIME_MS);
         }
       } else {
+        // 속도가 다시 올라가면 타이머 취소
         if (autoStopTimer) {
           clearTimeout(autoStopTimer);
           autoStopTimer = null;
@@ -1430,16 +1450,18 @@
     /* ============================================================= */
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        const swCode = `
-          self.addEventListener('install', e => self.skipWaiting());
-          self.addEventListener('activate', e => self.clients.claim());
-          self.addEventListener('fetch', e => e.respondWith(fetch(e.request)));
-        `;
-        const blob = new Blob([swCode], { type: 'text/javascript' });
-        const swUrl = URL.createObjectURL(blob);
-        navigator.serviceWorker.register(swUrl)
-          .then(() => URL.revokeObjectURL(swUrl))
-          .catch(() => URL.revokeObjectURL(swUrl));
+        try {
+          const swCode = `
+            self.addEventListener('install', e => self.skipWaiting());
+            self.addEventListener('activate', e => self.clients.claim());
+            self.addEventListener('fetch', e => e.respondWith(fetch(e.request)));
+          `;
+          const blob = new Blob([swCode], { type: 'text/javascript' });
+          const swUrl = URL.createObjectURL(blob);
+          navigator.serviceWorker.register(swUrl)
+            .then(() => URL.revokeObjectURL(swUrl))
+            .catch(() => {});
+        } catch (e) {}
       });
     }
 
@@ -1538,6 +1560,7 @@
       return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
     }
 
+    /* 🟢 [수정보완] 다중 배열 구조의 다각형 포인트 안전 파싱 */
     function isPointInPolygon(point, vs) {
       const x = point[0], y = point[1];
       let inside = false;
@@ -1565,8 +1588,6 @@
 
     let waypoints = [], waypointMarkers = [], routePolyline = null;
     let currentSpeedKts = 0, currentSpeedKmh = 0;
-    let isNavigating = false, tripStartTime = null;
-    let tripSpeedList = [], tripMaxSpeed = 0;
 
     let tripLogs = [];
     try { tripLogs = JSON.parse(localStorage.getItem('ship_trip_logs') || '[]'); } catch (e) { tripLogs = []; }
@@ -1625,17 +1646,17 @@
         btn.innerText = "중심 추적(회전)";
         guide.innerText = "[상태] 중심 추적 모드 (진행 방향 회전)";
         map.panTo([currentLat, currentLng]);
-        if (typeof map.setBearing === 'function') map.setBearing(-currentHeading);
+        setMapBearingSafe(-currentHeading);
       } else if (mapMode === 1) {
         btn.classList.add('active-tracking-norotate');
         btn.innerText = "중심 추적(정북)";
         guide.innerText = "[상태] 중심 추적 모드 (정북 고정)";
         map.panTo([currentLat, currentLng]);
-        if (typeof map.setBearing === 'function') map.setBearing(0);
+        setMapBearingSafe(0);
       } else {
         btn.innerText = "자유 이동 모드";
         guide.innerText = "[상태] 자유 지도 이동 모드";
-        if (typeof map.setBearing === 'function') map.setBearing(0);
+        setMapBearingSafe(0);
       }
     }
 
@@ -1828,7 +1849,7 @@
           if (getDistanceInMeters(lat, lng, layer.getLatLng().lat, layer.getLatLng().lng) <= 50) inside = true; 
         } else if (layer instanceof L.Polygon || layer instanceof L.Rectangle) {
           const latLngs = layer.getLatLngs();
-          const polyPoints = Array.isArray(latLngs[0]) ? latLngs[0] : latLngs;
+          const polyPoints = Array.isArray(latLngs[0]) ? (Array.isArray(latLngs[0][0]) ? latLngs[0][0] : latLngs[0]) : latLngs;
           const formattedPoints = polyPoints.map(p => [p.lat, p.lng]);
           inside = isPointInPolygon([lat, lng], formattedPoints);
         }
@@ -1859,19 +1880,21 @@
     function updateShipPosition(lat, lng, isManual = false) {
       if (!lat || !lng || isNaN(lat) || isNaN(lng)) return;
 
-      if (trackPoints.length > 0) {
-        const lastPoint = trackPoints[trackPoints.length - 1];
-        const distKm = getDistanceInKm(lastPoint[0], lastPoint[1], lat, lng);
-        if (distKm > 0.003) {
-          const heading = calculateBearing(lastPoint[0], lastPoint[1], lat, lng);
-          if (heading !== 0) currentHeading = heading;
+      if (isDrivingStarted) {
+        if (trackPoints.length > 0) {
+          const lastPoint = trackPoints[trackPoints.length - 1];
+          const distKm = getDistanceInKm(lastPoint[0], lastPoint[1], lat, lng);
+          if (distKm > 0.003) { // 3m 이상 이동 시 갱신
+            const heading = calculateBearing(lastPoint[0], lastPoint[1], lat, lng);
+            if (heading !== 0) currentHeading = heading;
+            trackPoints.push([lat, lng]);
+            totalTrackDistKm += distKm;
+            trackPolyline.addLatLng([lat, lng]);
+          }
+        } else {
           trackPoints.push([lat, lng]);
-          totalTrackDistKm += distKm;
           trackPolyline.addLatLng([lat, lng]);
         }
-      } else {
-        trackPoints.push([lat, lng]);
-        trackPolyline.addLatLng([lat, lng]);
       }
 
       currentLat = lat; currentLng = lng;
@@ -1880,10 +1903,10 @@
 
       if (mapMode === 0) {
         map.panTo([currentLat, currentLng]);
-        if (typeof map.setBearing === 'function') map.setBearing(-currentHeading);
+        setMapBearingSafe(-currentHeading);
       } else if (mapMode === 1) {
         map.panTo([currentLat, currentLng]);
-        if (typeof map.setBearing === 'function') map.setBearing(0);
+        setMapBearingSafe(0);
       }
 
       document.getElementById('gps-coords').innerText = `${currentLat.toFixed(5)} N, ${currentLng.toFixed(5)} E`;
@@ -1939,14 +1962,28 @@
     }
 
     /* ============================================================= */
-    /* [JS-15] 아날로그 속도계 렌더링 함수 (글자 및 숫자 확대 보완)[cite: 9] */
+    /* [JS-15] 아날로그 속도계 렌더링 함수 (고해상도 대응 보완) */
     /* ============================================================= */
     function drawSpeedometer(kts, kmh) {
       const canvas = document.getElementById('speedometer');
       if (!canvas) return;
       const ctx = canvas.getContext('2d');
-      const w = canvas.width, h = canvas.height;
-      const cx = w / 2, cy = h / 2, radius = 160;
+
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      const targetWidth = rect.width || 400;
+      const targetHeight = rect.height || 400;
+
+      if (canvas.width !== targetWidth * dpr || canvas.height !== targetHeight * dpr) {
+        canvas.width = targetWidth * dpr;
+        canvas.height = targetHeight * dpr;
+      }
+
+      ctx.save();
+      ctx.scale(dpr, dpr);
+
+      const w = targetWidth, h = targetHeight;
+      const cx = w / 2, cy = h / 2, radius = Math.min(cx, cy) - 20;
 
       ctx.clearRect(0, 0, w, h);
 
@@ -1978,8 +2015,7 @@
       ctx.strokeStyle = '#00f2fe';
       ctx.stroke();
 
-      // [가독성 향상] 눈금 숫자 크기 및 폰트 확대 (0, 5, 10, 15, 20, 25, 30)[cite: 9]
-      ctx.save();
+      // 눈금 숫자 렌더링
       ctx.font = 'bold 16px Segoe UI, sans-serif'; 
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -1993,10 +2029,9 @@
         const tx = cx + tickRadius * Math.cos(angle);
         const ty = cy + tickRadius * Math.sin(angle);
 
-        ctx.fillStyle = '#ffffff'; // 눈금 색상 선명하게 흰색으로 변경
+        ctx.fillStyle = '#ffffff';
         ctx.fillText(val, tx, ty);
       });
-      ctx.restore();
 
       // 아날로그 속도계 바늘(Needle) 그리기
       ctx.save();
@@ -2024,19 +2059,21 @@
 
       ctx.restore();
 
-      // [가독성 향상] 중앙 디지털 수치 및 영어 레이블 대폭 확대[cite: 9]
+      // 중앙 디지털 수치 표기
       ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 48px Consolas, monospace'; // 글자 크기 키움
+      ctx.font = 'bold 44px Consolas, monospace';
       ctx.textAlign = 'center';
       ctx.fillText(kts.toFixed(1), cx, cy + 12);
 
       ctx.fillStyle = '#00f2fe';
-      ctx.font = 'bold 20px Segoe UI, sans-serif'; // KNOTS 레이블 확대[cite: 9]
-      ctx.fillText('KNOTS', cx, cy + 42);
+      ctx.font = 'bold 18px Segoe UI, sans-serif';
+      ctx.fillText('KNOTS', cx, cy + 40);
 
       ctx.fillStyle = '#c9d1d9';
-      ctx.font = 'bold 16px Segoe UI, sans-serif'; // km/h 환산 표기 확대[cite: 9]
-      ctx.fillText(`(${kmh.toFixed(1)} km/h)`, cx, cy + 68);
+      ctx.font = 'bold 15px Segoe UI, sans-serif';
+      ctx.fillText(`(${kmh.toFixed(1)} km/h)`, cx, cy + 64);
+
+      ctx.restore();
     }
 
     /* ============================================================= */
@@ -2044,7 +2081,7 @@
     /* ============================================================= */
     function resetTrack() {
       trackPoints = []; totalTrackDistKm = 0;
-      trackPolyline.setLatLngs([]);
+      if (trackPolyline) trackPolyline.setLatLngs([]);
       document.getElementById('track-distance').innerText = `0.00 NM (0.00 km)`;
     }
 
@@ -2244,58 +2281,53 @@
       document.getElementById('m-avg-speed').innerText = `${(log.avgSpeedKts || 0).toFixed(1)} Kts`;
       document.getElementById('m-max-speed').innerText = `${(log.maxSpeedKts || 0).toFixed(1)} Kts`;
 
-      document.getElementById('detail-modal').style.display = 'flex';
-      document.body.style.overflow = 'hidden';
+      const deleteBtn = document.getElementById('modal-delete-btn');
+      deleteBtn.onclick = () => deleteLog(log.id);
 
+      document.getElementById('detail-modal').style.display = 'flex';
+
+      // 모달 내 지도 초기화 및 업데이트 처리
       setTimeout(() => {
-        if (modalMap) {
-          modalMap.remove();
-          modalMap = null;
+        if (!modalMap) {
+          modalMap = L.map('modal-map', { zoomControl: false, attributionControl: false });
+          L.tileLayer('https://xdworld.vworld.kr/2d/Base/service/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(modalMap);
         }
-        modalMap = L.map('modal-map', { zoomControl: false });
-        L.tileLayer('https://xdworld.vworld.kr/2d/Base/service/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(modalMap);
+
+        if (modalPolyline) {
+          modalMap.removeLayer(modalPolyline);
+          modalPolyline = null;
+        }
 
         if (log.trackPoints && log.trackPoints.length > 0) {
-          const poly = L.polyline(log.trackPoints, { color: '#ff4d4d', weight: 4 }).addTo(modalMap);
-          modalMap.fitBounds(poly.getBounds(), { padding: [20, 20] });
+          modalPolyline = L.polyline(log.trackPoints, { color: '#00f2fe', weight: 4 }).addTo(modalMap);
+          modalMap.fitBounds(modalPolyline.getBounds(), { padding: [20, 20] });
         } else {
           modalMap.setView([currentLat, currentLng], 14);
         }
         modalMap.invalidateSize();
-      }, 200);
-
-      document.getElementById('modal-delete-btn').onclick = () => {
-        if (confirm("정말 이 운항 기록을 삭제하시겠습니까?")) {
-          tripLogs = tripLogs.filter(l => l.id !== log.id);
-          localStorage.setItem('ship_trip_logs', JSON.stringify(tripLogs));
-          renderLogList();
-          closeModal();
-        }
-      };
+      }, 150);
     }
 
     function closeModal() {
       document.getElementById('detail-modal').style.display = 'none';
-      document.body.style.overflow = 'auto';
     }
 
-    /* ============================================================= */
-    /* [JS-19] 페이지 로드 시 초기화 바인딩 */
-    /* ============================================================= */
-    window.addEventListener('DOMContentLoaded', () => {
-      renderLogList();
-      drawSpeedometer(0, 0);
-      listenToOtherShips();
-      handleShipSelectChange();
-      updateClock();
+    function deleteLog(logId) {
+      if (confirm("이 운항 기록을 삭제하시겠습니까?")) {
+        tripLogs = tripLogs.filter(item => item.id !== logId);
+        try {
+          localStorage.setItem('ship_trip_logs', JSON.stringify(tripLogs));
+        } catch (e) {}
+        renderLogList();
+        closeModal();
+      }
+    }
 
-      const unlockAudio = function() {
-        if (audioCtx && audioCtx.state === 'suspended') {
-          audioCtx.resume();
-        }
-      };
-      document.body.addEventListener('touchstart', unlockAudio, { once: true });
-      document.body.addEventListener('click', unlockAudio, { once: true });
+    /* 초기 렌더링 시작 */
+    window.addEventListener('DOMContentLoaded', () => {
+      drawSpeedometer(0, 0);
+      renderLogList();
+      listenToOtherShips();
     });
   </script>
 </body>
