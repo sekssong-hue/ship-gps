@@ -660,25 +660,37 @@
     .modal-close-btn { background: #30363d; color: #fff; }
     .modal-delete-btn { background: var(--accent-red); color: #fff; }
 
+    /* 선박 아이콘 및 마커 스타일 개선 */
     .my-ship-icon-box, .other-ship-icon {
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
       white-space: nowrap;
+      transition: transform 0.2s ease;
+      cursor: pointer;
+    }
+    .other-ship-icon:hover {
+      transform: scale(1.15);
+      z-index: 99999 !important;
     }
     .my-ship-badge, .other-ship-badge {
       background: rgba(13, 17, 23, 0.95);
       color: #00f2fe;
       border: 2px solid #00f2fe;
-      padding: 6px 14px;
+      padding: 4px 10px;
       border-radius: 8px;
-      font-size: 18px; 
+      font-size: 14px; 
       font-weight: 900;
-      margin-bottom: 4px;
+      margin-bottom: 2px;
       box-shadow: 0 0 12px rgba(0, 242, 254, 0.8);
       text-align: center;
-      line-height: 1.25;
+      line-height: 1.2;
+    }
+    .other-ship-badge {
+      color: #ffab70;
+      border-color: #ffab70;
+      box-shadow: 0 0 12px rgba(255, 171, 112, 0.6);
     }
     .other-ship-badge.danger { background: #ff7b72; color: #fff; border-color: #fff; animation: blink 0.8s infinite; }
     .cruise-ship-icon {
@@ -689,11 +701,11 @@
       border: 2px solid #00f2fe;
       border-radius: 50%;
       box-shadow: 0 0 12px rgba(0, 242, 254, 0.8);
-      width: 44px;
-      height: 44px;
-      font-size: 24px;
+      width: 36px;
+      height: 36px;
+      font-size: 20px;
     }
-    .other-ship-symbol { font-size: 28px; }
+    .other-ship-symbol { font-size: 24px; }
 
     .pwa-install-banner {
       position: fixed;
@@ -869,17 +881,6 @@
         </div>
 
         <div style="width: 1px; background: var(--border-color); flex-shrink: 0; align-self: stretch; margin: 2px 0;"></div>
-
-        <div style="display:flex; align-items:center; gap:8px; flex-shrink: 0; font-size: 0.85rem;">
-          <span style="color:var(--accent-color); font-weight:bold;">구역 유형 :</span>
-          <select id="zoneType" style="background: #0d1117; border: 1px solid var(--border-color); color: #ffffff; padding: 6px 8px; border-radius: 6px; font-weight: bold; font-size: 0.85rem; outline: none;">
-            <option value="berth">⚓ 정박지 구역 (Green)</option>
-            <option value="danger">위험 구역 (Red)</option>
-            <option value="warning">주의 구역 (Yellow)</option>
-            <option value="info">안내 구역 (Blue)</option>
-          </select>
-          <input type="text" id="zoneReason" placeholder="사유 입력 (예: 선박 정박장)" style="background: #0d1117; border: 1px solid var(--border-color); color: #ffffff; padding: 6px 8px; border-radius: 6px; font-weight: bold; font-size: 0.85rem; outline: none; width: 150px;">
-        </div>
 
         <div class="alarm-switch-container" style="flex-shrink: 0; margin-left: auto;">
           <span>🔔 알람소리</span>
@@ -1176,10 +1177,10 @@
       btnStopSave.disabled = false;
       locationBadge.style.display = 'block';
 
-      // Firebase 상태 업데이트: 출항 시작
+      // Firebase 상태 업데이트: 출항 시작 시 '운항 중'으로 변경
       if (isFirebaseReady && currentShipName) {
         firebase.database().ref('ships/' + currentShipName).update({
-          tripStatus: '출항시작',
+          tripStatus: '운항 중',
           startTime: startTimeStr,
           endTime: ''
         });
@@ -1213,11 +1214,11 @@
       btnStart.disabled = !isMyShipOperating;
       locationBadge.style.display = 'none';
 
-      // Firebase 상태 업데이트: 도착 종료
+      // Firebase 상태 업데이트: 도착 종료 시 '대기 중'으로 변경
       if (isFirebaseReady && currentShipName) {
         const endTimeStr = document.getElementById('end-time-input').value;
         firebase.database().ref('ships/' + currentShipName).update({
-          tripStatus: '도착종료',
+          tripStatus: '대기 중',
           endTime: endTimeStr
         });
       }
@@ -1296,6 +1297,7 @@
             alert(`[${currentShipName}] 은(는) 이미 다른 단말기에서 운항 등록 중입니다.`);
             return;
           }
+          // 운항 등록 시 상태를 '대기 중'으로 저장
           await targetRef.set({
             shipName: currentShipName,
             lat: currentLat,
@@ -1554,17 +1556,18 @@
         <div class="my-ship-icon-box">
           <div class="my-ship-badge">
             <div>${displayName}</div>
-            <div style="font-size: 0.85em; color: #ffffff;">속도: ${speedText} Kts</div>
+            <div style="font-size: 0.8em; color: #ffffff;">속도: ${speedText} Kts</div>
           </div>
           <div class="cruise-ship-icon">⚓</div>
         </div>
       `;
-      return L.divIcon({ className: '', html: iconHtml, iconSize: [200, 110], iconAnchor: [100, 80] });
+      return L.divIcon({ className: '', html: iconHtml, iconSize: [160, 90], iconAnchor: [80, 65] });
     }
 
     const shipMarker = L.marker([currentLat, currentLng], {
       icon: createMyShipIcon(currentShipName, 0),
-      draggable: true
+      draggable: true,
+      zIndexOffset: 1000 // 내 선박이 항상 위에 표시되도록 높임
     }).addTo(map).bindPopup("<b>현재 내 위치</b>");
 
     trackPolyline = L.polyline([], { color: '#ff4d4d', weight: 5, opacity: 0.85 }).addTo(map);
@@ -1606,29 +1609,14 @@
     });
     map.addControl(drawControl);
 
-    /* 구역 색상 및 유형 설정 업데이트 */
+    /* 도형 생성 설정 기본화 */
     map.on(L.Draw.Event.CREATED, function (e) {
       const layer = e.layer;
-      const zoneType = document.getElementById('zoneType').value;
-      const zoneReason = document.getElementById('zoneReason').value.trim() || (zoneType === 'berth' ? '선박 정박지' : '위험 구역');
+      const color = '#ff7b72';
       
-      let color = '#00f2fe';
-      let label = '안내';
-
-      if (zoneType === 'berth') {
-        color = '#2ea043'; // 정박지: 초록색
-        label = '정박지';
-      } else if (zoneType === 'danger') {
-        color = '#ff7b72'; // 위험 구역: 빨간색
-        label = '위험';
-      } else if (zoneType === 'warning') {
-        color = '#f59e0b'; // 주의 구역: 노란색
-        label = '주의';
-      }
-
-      layer.zoneMeta = { type: zoneType, reason: zoneReason, label: label, color: color };
+      layer.zoneMeta = { type: 'danger', reason: '지정 구역', label: '경고', color: color };
       if (layer.setStyle) layer.setStyle({ color: color, fillColor: color, fillOpacity: 0.35, weight: 2 });
-      layer.bindPopup(`<b>[${label} 구역]</b><br>${zoneReason}`);
+      layer.bindPopup(`<b>[지정 구역]</b>`);
       drawnItems.addLayer(layer);
       checkZoneGeofencing(currentLat, currentLng);
     });
@@ -1699,48 +1687,28 @@
         opt.disabled = isOperatingByOther;
       });
 
+      // online-ship-badges에 수신된 tripStatus 값을 실시간 표시
       const myBadge = document.createElement('span');
       myBadge.className = isMyShipOperating ? "ship-badge my-ship" : "ship-badge";
-      myBadge.innerText = currentShipName ? `⚓ ${currentShipName} (${isMyShipOperating ? '운항중' : '대기'})` : `선택 안됨`;
+      let statusText = '대기 중';
+      if (isDrivingStarted) {
+        statusText = '운항 중';
+      }
+      myBadge.innerText = currentShipName ? `⚓ ${currentShipName} (${isMyShipOperating ? statusText : '미등록'})` : `선택 안됨`;
       container.appendChild(myBadge);
 
       Object.keys(operatingShipsMap).forEach(shipName => {
         if (shipName !== currentShipName) {
           const badge = document.createElement('span');
           badge.className = "ship-badge busy-ship";
-          badge.innerText = `🚢 ${shipName} (운항중)`;
+          const otherStatus = operatingShipsMap[shipName].tripStatus || '운항중';
+          badge.innerText = `🚢 ${shipName} (${otherStatus})`;
           container.appendChild(badge);
         }
       });
     }
 
-    /* 특정 좌표가 지정된 정박지 구역 내에 있는지 확인하는 헬퍼 함수 */
-    function isPositionInBerthZone(lat, lng) {
-      let inBerth = false;
-      drawnItems.eachLayer(layer => {
-        if (!layer.zoneMeta || layer.zoneMeta.type !== 'berth') return;
-        if (layer instanceof L.Circle) {
-          if (getDistanceInMeters(lat, lng, layer.getLatLng().lat, layer.getLatLng().lng) <= layer.getRadius()) inBerth = true;
-        } else if (layer instanceof L.Marker) {
-          if (getDistanceInMeters(lat, lng, layer.getLatLng().lat, layer.getLatLng().lng) <= 50) inBerth = true;
-        } else if (layer instanceof L.Polygon || layer instanceof L.Rectangle) {
-          try {
-            const rawLatLngs = layer.getLatLngs();
-            let polyPoints = rawLatLngs;
-            while (Array.isArray(polyPoints) && polyPoints.length > 0 && Array.isArray(polyPoints[0])) {
-              polyPoints = polyPoints[0];
-            }
-            if (polyPoints && Array.isArray(polyPoints)) {
-              const formattedPoints = polyPoints.map(p => [p.lat, p.lng]);
-              if (isPointInPolygon([lat, lng], formattedPoints)) inBerth = true;
-            }
-          } catch (err) {}
-        }
-      });
-      return inBerth;
-    }
-
-    /* 실시간 주변 선박 감지 및 정박지 충돌 알람 예외 처리 로직 */
+    /* 실시간 주변 선박 감지 및 선박 겹침 방지(오프셋) 적용 제어 로직 */
     function listenToOtherShips() {
       if (!isFirebaseReady) { updateOnlineShipBadges({}); return; }
       const shipsRef = firebase.database().ref('ships');
@@ -1753,26 +1721,41 @@
         const currentActiveShips = new Set();
         const operatingShipsMap = {};
 
-        // 1. 내 선박이 정박지 구역 내에 위치해 있는지 체크
-        const isMyShipInBerth = isPositionInBerthZone(currentLat, currentLng);
-
+        const activeShipsArray = [];
         Object.keys(shipsData).forEach(shipKey => {
           const ship = shipsData[shipKey];
           if (!ship || !ship.isOperating) return;
           if (Date.now() - (ship.updatedAt || 0) > 300000) return;
 
-          operatingShipsMap[ship.shipName || shipKey] = true;
+          operatingShipsMap[ship.shipName || shipKey] = ship;
           if (shipKey === currentShipName) return; 
 
           currentActiveShips.add(shipKey);
-          
-          const distM = getDistanceInMeters(currentLat, currentLng, ship.lat, ship.lng);
-          
-          // 2. 상대 선박이 정박지 구역 내에 위치해 있는지 체크
-          const isOtherShipInBerth = isPositionInBerthZone(ship.lat, ship.lng);
+          activeShipsArray.push({ key: shipKey, ...ship });
+        });
 
-          // ★ 충돌 위험판정: 내 선박과 상대 선박 둘 중 하나라도 '정박지 구역' 내부라면 충돌 알람 제외!
-          const isDanger = isMyShipOperating && (distM <= PROXIMITY_WARN_DISTANCE_M) && (!isMyShipInBerth && !isOtherShipInBerth);
+        // 선박 간의 위치가 거의 겹칠 때 시각적 오프셋 계산 (겹침 현상 방지)
+        activeShipsArray.forEach((ship, index) => {
+          const shipKey = ship.key;
+          
+          let displayLat = ship.lat;
+          let displayLng = ship.lng;
+
+          // 나와의 거리 체크
+          const distM = getDistanceInMeters(currentLat, currentLng, ship.lat, ship.lng);
+
+          // 선박 간 너무 비슷하면 마커 위치를 미세하게 분산 배치 (약 5m 내 분산)
+          activeShipsArray.forEach((otherShip, otherIndex) => {
+            if (index > otherIndex) {
+              const distBetween = getDistanceInMeters(ship.lat, ship.lng, otherShip.lat, otherShip.lng);
+              if (distBetween < 10) { // 10미터 이내 오버랩 판정시
+                displayLat += (index * 0.00008); 
+                displayLng += (index * 0.00008);
+              }
+            }
+          });
+
+          const isDanger = isMyShipOperating && (distM <= PROXIMITY_WARN_DISTANCE_M);
 
           if (distM < minDistance) {
             minDistance = distM;
@@ -1781,21 +1764,31 @@
 
           const speedText = (ship.speedKts || 0).toFixed(1);
           const iconHtml = `
-            <div class="other-ship-icon">
+            <div class="other-ship-icon" title="${ship.shipName || shipKey}">
               <div class="other-ship-badge ${isDanger ? 'danger' : ''}">
                 <div>${ship.shipName || shipKey}</div>
-                <div style="font-size: 0.9em; color: #ffffff;">${speedText} Kts</div>
+                <div style="font-size: 0.8em; color: #ffffff;">${speedText} Kts</div>
               </div>
               <div class="other-ship-symbol">🚢</div>
             </div>
           `;
-          const customIcon = L.divIcon({ className: '', html: iconHtml, iconSize: [180, 100], iconAnchor: [90, 75] });
+          const customIcon = L.divIcon({ className: '', html: iconHtml, iconSize: [160, 90], iconAnchor: [80, 65] });
 
           if (otherShipMarkers[shipKey]) {
-            otherShipMarkers[shipKey].setLatLng([ship.lat, ship.lng]);
+            otherShipMarkers[shipKey].setLatLng([displayLat, displayLng]);
             otherShipMarkers[shipKey].setIcon(customIcon);
           } else {
-            otherShipMarkers[shipKey] = L.marker([ship.lat, ship.lng], { icon: customIcon }).addTo(map);
+            const marker = L.marker([displayLat, displayLng], { 
+              icon: customIcon,
+              riseOnHover: true // 마우스 호버 시 최상단 레벨로 올리기
+            }).addTo(map);
+
+            // 클릭 시 Z-Index 최고치 상승
+            marker.on('click', function() {
+              this.setZIndexOffset(2000);
+            });
+
+            otherShipMarkers[shipKey] = marker;
           }
         });
 
@@ -1810,7 +1803,7 @@
 
         const guide = document.getElementById('status-guide-text');
         
-        // 내 선박이 정박지 바깥이고, 타 선박이 100m 이내로 들어올 경우만 알람
+        // 내 선박 주변 100m 이내로 타 선박이 들어올 경우 알람
         if (isMyShipOperating && closestDangerShip) {
           guide.className = "guide-text warning-alert";
           guide.innerText = `[충돌 주의] 근접 선박 감지! (${closestDangerShip.name} 거리: ${Math.round(closestDangerShip.dist)}m)`;
@@ -1833,7 +1826,6 @@
       }
 
       let activeWarning = null;
-      let isInBerth = false;
 
       drawnItems.eachLayer(layer => {
         if (!layer.zoneMeta) return;
@@ -1859,11 +1851,7 @@
         }
 
         if (inside) {
-          if (layer.zoneMeta.type === 'berth') {
-            isInBerth = true;
-          } else if (!activeWarning || layer.zoneMeta.type === 'danger') {
-            activeWarning = layer.zoneMeta;
-          }
+          activeWarning = layer.zoneMeta;
         }
       });
 
@@ -1871,17 +1859,8 @@
 
       if (activeWarning) {
         guide.className = "guide-text warning-alert";
-        guide.innerText = `[구역 경고] [${activeWarning.label} 구역 진입] ${activeWarning.reason}`;
-        
-        if (activeWarning.type === 'danger') {
-          playAlertSound('danger');
-        } else if (activeWarning.type === 'warning') {
-          playAlertSound('warning');
-        }
-      } else if (isInBerth) {
-        guide.className = "guide-text";
-        guide.style.color = "#2ea043";
-        guide.innerText = "[상태] ⚓ 정박지 구역 지정 완료 - 정박 중 (충돌 주의 알람 제외됨)";
+        guide.innerText = `[구역 경고] 지정 구역 진입`;
+        playAlertSound('danger');
       } else {
         guide.className = "guide-text";
         guide.style.color = "var(--accent-color)";
