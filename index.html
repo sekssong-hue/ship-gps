@@ -482,6 +482,12 @@
       border-radius: 6px;
       animation: blink 1s infinite;
     }
+    .guide-text.safe-alert {
+      color: #ffffff;
+      background: var(--accent-green);
+      padding: 6px 12px;
+      border-radius: 6px;
+    }
 
     .route-control-bar {
       width: 100%;
@@ -1609,14 +1615,23 @@
     });
     map.addControl(drawControl);
 
-    /* 도형 생성 설정 기본화 */
+    /* 도형 생성 및 선착장 Safe Zone 설정 기능 포함 */
     map.on(L.Draw.Event.CREATED, function (e) {
       const layer = e.layer;
-      const color = '#ff7b72';
+      const isSafeZone = confirm("이 영역을 지정 선착장(정박 안전 구역 - Safe Zone)으로 설정하시겠습니까?\n[확인]: 선착장(알람 차단 Mute)\n[취소]: 일반 경고 구역");
       
-      layer.zoneMeta = { type: 'danger', reason: '지정 구역', label: '경고', color: color };
-      if (layer.setStyle) layer.setStyle({ color: color, fillColor: color, fillOpacity: 0.35, weight: 2 });
-      layer.bindPopup(`<b>[지정 구역]</b>`);
+      if (isSafeZone) {
+        const safeColor = '#2ea043';
+        layer.zoneMeta = { type: 'safe', reason: '지정 선착장', label: '정박 영역', color: safeColor };
+        if (layer.setStyle) layer.setStyle({ color: safeColor, fillColor: safeColor, fillOpacity: 0.35, weight: 2 });
+        layer.bindPopup(`<b>[지정 선착장 (Safe Zone)]</b><br>정박 시 알람 자동 차단`);
+      } else {
+        const color = '#ff7b72';
+        layer.zoneMeta = { type: 'danger', reason: '지정 구역', label: '경고', color: color };
+        if (layer.setStyle) layer.setStyle({ color: color, fillColor: color, fillOpacity: 0.35, weight: 2 });
+        layer.bindPopup(`<b>[지정 경고 구역]</b>`);
+      }
+
       drawnItems.addLayer(layer);
       checkZoneGeofencing(currentLat, currentLng);
     });
@@ -1708,7 +1723,7 @@
       });
     }
 
-    /* 실시간 주변 선박 감지 및 선박 겹침 방지(오프셋) 적용 제어 로직 */
+    /* 실시간 주변 선박 감지 및 지정 선착장(In Safe Zone) 차단 로직 연동 */
     function listenToOtherShips() {
       if (!isFirebaseReady) { updateOnlineShipBadges({}); return; }
       const shipsRef = firebase.database().ref('ships');
@@ -1734,6 +1749,9 @@
           activeShipsArray.push({ key: shipKey, ...ship });
         });
 
+        // 지정 선착장 정박 감지 판별
+        const isCurrentlyInSafeZone = checkIsInSafeZone(currentLat, currentLng);
+
         // 선박 간의 위치가 거의 겹칠 때 시각적 오프셋 계산 (겹침 현상 방지)
         activeShipsArray.forEach((ship, index) => {
           const shipKey = ship.key;
@@ -1755,7 +1773,8 @@
             }
           });
 
-          const isDanger = isMyShipOperating && (distM <= PROXIMITY_WARN_DISTANCE_M);
+          // 지정 선착장에 안전 정박 중일 때는 주변 선박 충돌 경고 판단에서 제외
+          const isDanger = isMyShipOperating && !isCurrentlyInSafeZone && (distM <= PROXIMITY_WARN_DISTANCE_M);
 
           if (distM < minDistance) {
             minDistance = distM;
@@ -1803,8 +1822,8 @@
 
         const guide = document.getElementById('status-guide-text');
         
-        // 내 선박 주변 100m 이내로 타 선박이 들어올 경우 알람
-        if (isMyShipOperating && closestDangerShip) {
+        // 내 선박이 지정 선착장에 위치하거나 근접 선박 감지 조건 체크
+        if (isMyShipOperating && closestDangerShip && !isCurrentlyInSafeZone) {
           guide.className = "guide-text warning-alert";
           guide.innerText = `[충돌 주의] 근접 선박 감지! (${closestDangerShip.name} 거리: ${Math.round(closestDangerShip.dist)}m)`;
           playAlertSound('danger');
@@ -1814,7 +1833,31 @@
       });
     }
 
-    /* 구역 체크 지오펜싱 제어 로직 */
+    /* 지정 선착장 감지 보조 함수 */
+    function checkIsInSafeZone(lat, lng) {
+      let inSafe = false;
+      drawnItems.eachLayer(layer => {
+        if (!layer.zoneMeta || layer.zoneMeta.type !== 'safe') return;
+        if (layer instanceof L.Circle) {
+          if (getDistanceInMeters(lat, lng, layer.getLatLng().lat, layer.getLatLng().lng) <= layer.getRadius()) inSafe = true;
+        } else if (layer instanceof L.Polygon || layer instanceof L.Rectangle) {
+          try {
+            const rawLatLngs = layer.getLatLngs();
+            let polyPoints = rawLatLngs;
+            while (Array.isArray(polyPoints) && polyPoints.length > 0 && Array.isArray(polyPoints[0])) {
+              polyPoints = polyPoints[0];
+            }
+            if (polyPoints && Array.isArray(polyPoints)) {
+              const formattedPoints = polyPoints.map(p => [p.lat, p.lng]);
+              if (isPointInPolygon([lat, lng], formattedPoints)) inSafe = true;
+            }
+          } catch (err) {}
+        }
+      });
+      return inSafe;
+    }
+
+    /* 구역 체크 지오펜싱 및 Safe Zone Mute 제어 로직 */
     function checkZoneGeofencing(lat, lng) {
       const guide = document.getElementById('status-guide-text');
       if (!guide) return;
@@ -1826,6 +1869,7 @@
       }
 
       let activeWarning = null;
+      let inSafeZone = false;
 
       drawnItems.eachLayer(layer => {
         if (!layer.zoneMeta) return;
@@ -1851,9 +1895,20 @@
         }
 
         if (inside) {
-          activeWarning = layer.zoneMeta;
+          if (layer.zoneMeta.type === 'safe') {
+            inSafeZone = true;
+          } else {
+            activeWarning = layer.zoneMeta;
+          }
         }
       });
+
+      // 지정 선착장(In Safe Zone) 영역 감지 시 알람 차단 및 상태 안내
+      if (inSafeZone) {
+        guide.className = "guide-text safe-alert";
+        guide.innerText = "[안전] 지정 선착장 정박 중 (충돌/구역 알람 Mute)";
+        return;
+      }
 
       if (guide.classList.contains('warning-alert') && guide.innerText.includes('근접 선박')) return;
 
